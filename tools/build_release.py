@@ -24,33 +24,34 @@ from util import *
 
 #############################################################################
 ## Constants
-README_FILE, SCREENSHOT_FILE, COVER_FILE, SPEC_FILE, PORT_JSON, PORT_SCRIPT, PORT_DIR, GITIGNORE_FILE, UNKNOWN_FILE = range(9)
+README_FILE, SCREENSHOT_FILE, COVER_FILE, GAMEINFO_XML, PORT_JSON, PORT_SCRIPT, PORT_DIR, GITIGNORE_FILE, UNKNOWN_FILE = range(9)
 REQUIRED_FILES = (
     (1<<README_FILE)     |
     (1<<SCREENSHOT_FILE) |
+    # (1<<GAMEINFO_XML)    |   ## Not yet required for every port.
     (1<<PORT_JSON)       |
     (1<<PORT_SCRIPT)     |
     (1<<PORT_DIR)        )
 
 FILE_TYPE_DESC = {
-    README_FILE: "README.md",
+    README_FILE:     "README.md",
     SCREENSHOT_FILE: "screenshot.{png|jpg}",
-    COVER_FILE:  "cover.{png|jpg}",
-    SPEC_FILE:   "port.spec",
-    PORT_JSON:   "port.json",
-    PORT_SCRIPT: "Port Script",
-    PORT_DIR:    "Port Directory",
-    GITIGNORE_FILE: ".gitginore",
-    UNKNOWN_FILE: "Unknown file",
+    COVER_FILE:      "cover.{png|jpg}",
+    GAMEINFO_XML:    "gameinfo.xml",
+    PORT_JSON:       "port.json",
+    PORT_SCRIPT:     "Port Script",
+    PORT_DIR:        "Port Directory",
+    GITIGNORE_FILE:  ".gitginore",
+    UNKNOWN_FILE:    "Unknown file",
     }
 
 FILE_TYPE_RE = {
     r"^\.gitignore$": GITIGNORE_FILE,
     r"^readme\.md$": README_FILE,
     r"^screenshot\.(png|jpg)$": SCREENSHOT_FILE,
-    r"^cover\.(png|jpg)$": COVER_FILE,
+    r"^cover\.(?:[a-z0-9]+\.)?(png|jpg)$": COVER_FILE,
     r"^port\.json$": PORT_JSON,
-    # r"^port\.spec$": SPEC_FILE,
+    r"^gameinfo\.xml$": GAMEINFO_XML,
     }
 
 TODAY = str(datetime.datetime.today().date())
@@ -67,6 +68,42 @@ PORTS_DIR = ROOT_DIR / 'ports'
 GITHUB_RUN = (ROOT_DIR / '.github_check').is_file()
 
 LARGEST_FILE = (1024 * 1024 * 90)
+
+#############################################################################
+"""
+We have ports like:
+
+ports/banana.duck/
+├── Banana Duck.sh
+├── README.md
+├── bananaduck
+│   ├── LICENSE.bananaduck.txt
+│   ├── LICENSE.love2d.txt
+│   ├── README
+│   ├── bananaduck.gptk
+│   ├── game
+│   │   └── LOTS OF FILES
+│   ├── log.txt
+│   └── love
+├── cover.png
+├── gameinfo.xml
+├── port.json
+└── screenshot.png
+
+when i create the gameinfo.zip i am storing the gameinfo data as:
+- banana.duck/gameinfo.xml
+- banana.duck/cover.png
+- banana.duck/screenshot.png
+
+but i need to store it as:
+- bananaduck/gameinfo.xml
+- bananaduck/cover.png
+- bananaduck/screenshot.png
+
+THIS_IS_ANNOYING maps "banana.duck/gameinfo.xml" to "bananaduck/gameinfo.xml"
+
+"""
+THIS_IS_ANNOYING = {}
 
 
 #############################################################################
@@ -151,7 +188,7 @@ def load_port(port_dir, manifest, registered, port_status, quick_build=False, ha
         'zip_files': [],
         'image_files': {
             "screenshot": None,
-            "cover": None,
+            "covers": [],
             "thumbnail": None,
             "video": None,
             },
@@ -176,10 +213,10 @@ def load_port(port_dir, manifest, registered, port_status, quick_build=False, ha
             continue
 
         elif port_file_type == COVER_FILE:
-            port_data['image_files']['cover'] = '.'.join((port_dir.name, port_file.name))
+            port_data['image_files']['covers'].append(str(port_file.name))
 
         elif port_file_type == SCREENSHOT_FILE:
-            port_data['image_files']['screenshot'] = '.'.join((port_dir.name, port_file.name))
+            port_data['image_files']['screenshot'] = str(port_file.name)
 
         elif port_file_type == PORT_SCRIPT:
             if registered['scripts'].setdefault(port_file.name, port_dir.name) != port_dir.name:
@@ -288,6 +325,17 @@ def load_port(port_dir, manifest, registered, port_status, quick_build=False, ha
     if broken:
         return None
 
+    # LETS MAKE IT WORSE.
+    THIS_IS_ANNOYING['/'.join((port_dir.name, 'gameinfo.xml'))] = \
+        port_data['dirs'][0] + 'gameinfo.xml'
+
+    THIS_IS_ANNOYING['/'.join((port_dir.name, port_data['image_files']['screenshot']))] = \
+        port_data['dirs'][0] + port_data['image_files']['screenshot']
+
+    for cover_image in port_data['image_files']['covers']:
+        THIS_IS_ANNOYING['/'.join((port_dir.name, cover_image))] = \
+            port_data['dirs'][0] + cover_image
+
     # Create the manifest (an md5sum of all the files in the port, and an md5sum of those md5sums).
     temp = []
     paths = collections.deque([port_dir])
@@ -381,15 +429,18 @@ def build_port_zip(root_dir, port_dir, port_data, new_manifest, port_status):
                 file_name_type = file_type(file_name)
 
                 if file_name_type in (SCREENSHOT_FILE, COVER_FILE):
-                    new_name = port_data['dirs'][0] + f"{port_name}.{new_name}"
+                    new_name = port_data['dirs'][0] + f"{new_name}"
 
                 elif file_name_type == README_FILE:
                     new_name = port_data['dirs'][0] + f"{port_name}.md"
 
                 elif file_name_type == PORT_JSON:
-                    new_name = port_data['dirs'][0] + f"{port_name}.port.json"
+                    new_name = port_data['dirs'][0] + "port.json"
 
-                elif file_name_type in (SPEC_FILE, UNKNOWN_FILE):
+                elif file_name_type == GAMEINFO_XML:
+                    new_name = port_data['dirs'][0] + "gameinfo.xml"
+
+                elif file_name_type == UNKNOWN_FILE:
                     continue
 
             else:
@@ -432,6 +483,56 @@ def build_port_zip(root_dir, port_dir, port_data, new_manifest, port_status):
     #         'release_id': CURRENT_RELEASE_ID,
     #         'md5': port_hash,
     #         }
+
+
+def build_gameinfo_zip(old_manifest, new_manifest):
+    new_files = [
+        f"{file}:{digest}"
+        for file, digest in new_manifest.items()
+        if file.count('/') == 1 and (
+            file_type(Path(file)) in (COVER_FILE, SCREENSHOT_FILE, GAMEINFO_XML))]
+
+    old_files = [
+        f"{file}:{digest}"
+        for file, digest in old_manifest.items()
+        if file.count('/') == 1 and (
+            file_type(Path(file)) in (COVER_FILE, SCREENSHOT_FILE, GAMEINFO_XML))]
+
+    new_files.sort()
+    old_files.sort()
+
+    new_manifest['gameinfo.zip'] = hash_items(new_files)
+    if old_manifest.get('gameinfo.zip') == new_manifest['gameinfo.zip']:
+        return
+
+    changes = {}
+    differ = Differ()
+
+    print(f"Building gameinfo.zip")
+    for line in differ.compare(old_files, new_files):
+        # line = "  <FILENAME>:<md5SUM>"
+        mode = line[:2]
+        name = line[2:].split(":", 1)[0]
+        if mode == '- ':
+            # File is removed.
+            changes[name] = 'Removed'
+        elif mode == '+ ':
+            if name in changes:
+                # If the file was already seen, its been removed, and readded, which means modified.
+                changes[name] = 'Modified'
+            else:
+                # File is just added.
+                changes[name] = 'Added'
+
+    zip_files = [
+        ((PORTS_DIR / file), THIS_IS_ANNOYING[str(file)])
+        for file, digest in new_manifest.items()
+        if file.count('/') == 1 and (
+            file_type(Path(file)) in (COVER_FILE, SCREENSHOT_FILE, GAMEINFO_XML))]
+
+    with zipfile.ZipFile(RELEASE_DIR / 'gameinfo.zip', 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+        for file_pair in zip_files:
+            zf.write(file_pair[0], file_pair[1])
 
 
 def build_images_zip(old_manifest, new_manifest):
@@ -584,12 +685,12 @@ def port_info(file_name, ports_json, ports_status):
 def util_info(file_name, util_json, ports_status, runtimes_map):
     clean_name = name_cleaner(file_name.name)
 
-    file_md5 = hash_file(file_name)
-    file_size = file_name.stat().st_size
-
     if file_name.name.lower().endswith('.squashfs'):
         clean_name = name_cleaner(runtimes_map[file_name.name]['export_name'])
         export_name = runtimes_map[file_name.name]['export_name']
+
+        file_md5 = hash_file(file_name)
+        file_size = file_name.stat().st_size
 
         nice_name = runtimes_map[file_name.name]['nice_name']
         runtime_name = runtimes_map[file_name.name]['runtime_name']
@@ -606,7 +707,7 @@ def util_info(file_name, util_json, ports_status, runtimes_map):
         if clean_name not in ports_status:
             ports_status[clean_name] = default_status
 
-            shutil.copy(file_name, RELEASE_DIR / file_name.name)
+            shutil.copy(file_name, RELEASE_DIR / export_name)
 
         elif ports_status[clean_name]['md5'] != file_md5:
             ports_status[clean_name]['md5'] = file_md5
@@ -628,8 +729,37 @@ def util_info(file_name, util_json, ports_status, runtimes_map):
             }
 
     else:
+        if file_name.is_file():
+            file_md5 = hash_file(file_name)
+            file_size = file_name.stat().st_size
+
+        else:
+            if clean_name not in ports_status:
+                # HRMMmmmmm o_o;;;;
+                return
+
+            file_md5 = ports_status[clean_name]['md5']
+            file_size = ports_status[clean_name]['size']
+
+        default_status = {
+            'date_added': TODAY,
+            'date_updated': TODAY,
+            'md5': file_md5,
+            'size': file_size,
+            'release_id': CURRENT_RELEASE_ID,
+            }
+
+        if clean_name not in ports_status:
+            ports_status[clean_name] = default_status
+
+        elif ports_status[clean_name]['md5'] != file_md5:
+            ports_status[clean_name]['md5'] = file_md5
+            ports_status[clean_name]['size'] = file_size
+            ports_status[clean_name]['release_id'] = CURRENT_RELEASE_ID
+            ports_status[clean_name]['date_updated'] = TODAY
+
         name = file_name.name
-        url = current_release_url(CURRENT_RELEASE_ID) + (file_name.name.replace(" ", ".").replace("..", "."))
+        url = current_release_url(ports_status[clean_name]['release_id']) + (file_name.name.replace(" ", ".").replace("..", "."))
 
         util_json[clean_name] = {
             "name": name,
@@ -706,7 +836,9 @@ def generate_ports_json(all_ports, port_status):
     if (RELEASE_DIR / 'PortMaster.zip').is_file():
         utils.append(RELEASE_DIR / 'PortMaster.zip')
 
+    utils.append(RELEASE_DIR / 'gameinfo.zip')
     utils.append(RELEASE_DIR / 'images.zip')
+
     runtimes_map = {}
 
     if RUNTIMES_DIR.is_dir():
@@ -740,7 +872,7 @@ def generate_ports_json(all_ports, port_status):
 
                     utils.append(RUNTIMES_DIR / runtime_file_name)
 
-            print(json.dumps(runtimes_map, indent=4))
+            # print(json.dumps(runtimes_map, indent=4))
 
     for file_name in sorted(utils, key=lambda x: str(x).casefold()):
         util_info(
@@ -865,6 +997,11 @@ def main(argv):
 
         return 0
 
+    CHECK_FOR_SHIT = ('gameinfo.zip', )
+    for check_for in CHECK_FOR_SHIT:
+        if check_for in old_manifest and check_for not in port_status:
+            del old_manifest[check_for]
+
     for port_dir in sorted(PORTS_DIR.iterdir(), key=lambda x: str(x).casefold()):
         if not port_dir.is_dir():
             continue
@@ -891,6 +1028,9 @@ def main(argv):
         status['total'] += 1
         all_ports[port_dir.name] = port_data
 
+    # with open('annoying.json', 'w') as fh:
+    #     json.dump(THIS_IS_ANNOYING, fh, indent=4)
+
     for port_dir in updated_ports:
         port_data = all_ports[port_dir.name]
 
@@ -905,7 +1045,7 @@ def main(argv):
     if '--do-check' not in argv:
         build_images_zip(old_manifest, new_manifest)
 
-        # build_markdown_zip(old_manifest, new_manifest)
+        build_gameinfo_zip(old_manifest, new_manifest)
 
         generate_ports_json(all_ports, port_status)
 
@@ -959,6 +1099,11 @@ def main(argv):
             return 127
 
     if '--do-check' not in argv:
+        CHECK_FOR_SHIT = ('images.zip', )
+        for check_for in CHECK_FOR_SHIT:
+            if check_for in port_status:
+                del port_status[check_for]
+
         with open(STATUS_FILE, 'w') as fh:
             json.dump(port_status, fh, indent=2)
 
