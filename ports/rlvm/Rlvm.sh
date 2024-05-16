@@ -1,9 +1,13 @@
 #!/bin/bash
 
+XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
+
 if [ -d "/opt/system/Tools/PortMaster/" ]; then
   controlfolder="/opt/system/Tools/PortMaster"
 elif [ -d "/opt/tools/PortMaster/" ]; then
   controlfolder="/opt/tools/PortMaster"
+elif [ -d "$XDG_DATA_HOME/PortMaster/" ]; then
+  controlfolder="$XDG_DATA_HOME/PortMaster"
 else
   controlfolder="/roms/ports/PortMaster"
 fi
@@ -22,12 +26,13 @@ PORTDIR="/$directory/ports"
 GAMEDIR="$PORTDIR/rlvm"
 cd $GAMEDIR
 
+> "$GAMEDIR/log.txt" && exec > >(tee "$GAMEDIR/log.txt") 2>&1
+
 width=55
 height=15
 
 $ESUDO chmod 666 $CUR_TTY
-$ESUDO touch log.txt
-$ESUDO chmod 666 log.txt
+
 export TERM=linux
 printf "\033c" > $CUR_TTY
 
@@ -188,12 +193,9 @@ export SDL_GAMECONTROLLERCONFIG="$sdl_controllerconfig"
 export PORTMASTER_GAMEPATH="${GAMEDIR}"
 
 $GPTOKEYB "rlvm.${DEVICE_ARCH}" -c "${GAMEDIR}/rlvm.gptk" &
-$TASKSET ./rlvm.${DEVICE_ARCH} $MSGOTHIC "${GAMEDIR}/games/${GAME}/" 2>&1 | $ESUDO tee -a ./log.txt
+./rlvm.${DEVICE_ARCH} $MSGOTHIC "${GAMEDIR}/games/${GAME}/"
 
 $ESUDO kill -9 $(pidof gptokeyb)
-unset LD_LIBRARY_PATH
-unset SDL_GAMECONTROLLERCONFIG
 $ESUDO systemctl restart oga_events &
-
-# Disable console
-printf "\033c" > $CUR_TTY
+printf "\033c" > /dev/tty1
+printf "\033c" > /dev/tty0

@@ -1,15 +1,22 @@
 #!/bin/bash
 
+XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
 
 if [ -d "/opt/system/Tools/PortMaster/" ]; then
   controlfolder="/opt/system/Tools/PortMaster"
 elif [ -d "/opt/tools/PortMaster/" ]; then
   controlfolder="/opt/tools/PortMaster"
+elif [ -d "$XDG_DATA_HOME/PortMaster/" ]; then
+  controlfolder="$XDG_DATA_HOME/PortMaster"
 else
   controlfolder="/roms/ports/PortMaster"
 fi
 
 source $controlfolder/control.txt
+source $controlfolder/device_info.txt
+[ -f "${controlfolder}/mod_${CFW_NAME}.txt" ] && source "${controlfolder}/mod_${CFW_NAME}.txt"
+
+export PORT_32BIT="Y"
 
 get_controls
 
@@ -18,9 +25,15 @@ $ESUDO chmod 666 /dev/tty1
 GAMEDIR="/$directory/ports/freedomplanet"
 cd $GAMEDIR/gamedata
 
-export LIBGL_ES=2
-export LIBGL_GL=21
-export LIBGL_FB=4
+> "$GAMEDIR/log.txt" && exec > >(tee "$GAMEDIR/log.txt") 2>&1
+
+if [ -f "${controlfolder}/libgl_${CFW_NAME}.txt" ]; then 
+  source "${controlfolder}/libgl_${CFW_NAME}.txt"
+else
+  source "${controlfolder}/libgl_default.txt"
+fi
+
+
 export BOX86_ALLOWMISSINGLIBS=1
 export BOX86_DLSYM_ERROR=1
 export BOX86_LOG=1
@@ -43,7 +56,8 @@ if [ ! -f "$GAMEDIR/gamedata/freedomplanet/bin32/oga_controls" ]; then
 fi
 
 $ESUDO $controlfolder/oga_controls box86 $param_device &
-$GAMEDIR/box86/box86 bin32/Chowdren 2>&1 | tee $GAMEDIR/log.txt
+$GAMEDIR/box86/box86 bin32/Chowdren
+
 $ESUDO kill -9 $(pidof oga_controls)
 $ESUDO systemctl restart oga_events &
 unset LD_LIBRARY_PATH

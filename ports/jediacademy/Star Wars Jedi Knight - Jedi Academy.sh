@@ -1,18 +1,26 @@
 #!/bin/bash
 
+XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
+
 if [ -d "/opt/system/Tools/PortMaster/" ]; then
   controlfolder="/opt/system/Tools/PortMaster"
 elif [ -d "/opt/tools/PortMaster/" ]; then
   controlfolder="/opt/tools/PortMaster"
+elif [ -d "$XDG_DATA_HOME/PortMaster/" ]; then
+  controlfolder="$XDG_DATA_HOME/PortMaster"
 else
   controlfolder="/roms/ports/PortMaster"
 fi
 
 source $controlfolder/control.txt
+source $controlfolder/device_info.txt
+[ -f "${controlfolder}/mod_${CFW_NAME}.txt" ] && source "${controlfolder}/mod_${CFW_NAME}.txt"
 
 get_controls
 
 GAMEDIR="/$directory/ports/JediAcademy"
+
+> "$GAMEDIR/log.txt" && exec > >(tee "$GAMEDIR/log.txt") 2>&1
 
 if [ ! -f $GAMEDIR/conf/openjk/base/openjk_sp.cfg ]; then
   if [[ -e "/dev/input/by-path/platform-odroidgo3-joypad-event-joystick" ]] || [[ "$(cat /sys/firmware/devicetree/base/model)" == "Rockchip RK3566 EVB2 LP4X V10 Board" ]] || [[ "$(cat /sys/firmware/devicetree/base/model)" == "Anbernic RG503" ]]; then
@@ -29,8 +37,20 @@ cd $GAMEDIR
 $ESUDO rm -rf ~/.local/share/openjk
 ln -sfv $GAMEDIR/conf/openjk/ ~/.local/share/
 
-export SDL_VIDEO_GL_DRIVER="$GAMEDIR/libs/libGL.so.1"
-export LIBGL_FB=4
+export DEVICE_ARCH="${DEVICE_ARCH:-aarch64}"
+
+if [ -f "${controlfolder}/libgl_${CFW_NAME}.txt" ]; then 
+  source "${controlfolder}/libgl_${CFW_NAME}.txt"
+else
+  source "${controlfolder}/libgl_default.txt"
+fi
+
+if [ "$LIBGL_FB" != "" ]; then
+export SDL_VIDEO_GL_DRIVER="$GAMEDIR/gl4es.aarch64/libGL.so.1"
+fi 
+
+export LD_LIBRARY_PATH=$GAMEDIR/libs:$LD_LIBRARY_PATH
+export SDL_GAMECONTROLLERCONFIG="$sdl_controllerconfig"
 
 source /etc/profile
 
@@ -47,8 +67,9 @@ fi
 
 $ESUDO chmod 666 /dev/tty1
 $ESUDO chmod 666 /dev/uinput
+
 $GPTOKEYB $APP_TO_KILL -c "openjk_sp.aarch64.gptk" &
-LD_LIBRARY_PATH=$GAMEDIR/libs:$LD_LIBRARY_PATH SDL_GAMECONTROLLERCONFIG="$sdl_controllerconfig" ./openjk_sp.aarch64 2>&1 | tee $GAMEDIR/log.txt
+./openjk_sp.aarch64
 $ESUDO kill -9 $(pidof gptokeyb)
 ((execute_perf)) && normperf
 $ESUDO systemctl restart oga_events & 

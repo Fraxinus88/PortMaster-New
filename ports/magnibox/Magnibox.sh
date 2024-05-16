@@ -1,15 +1,21 @@
 #!/bin/bash
 
+XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
+
 if [ -d "/opt/system/Tools/PortMaster/" ]; then
   controlfolder="/opt/system/Tools/PortMaster"
 elif [ -d "/opt/tools/PortMaster/" ]; then
   controlfolder="/opt/tools/PortMaster"
+elif [ -d "$XDG_DATA_HOME/PortMaster/" ]; then
+  controlfolder="$XDG_DATA_HOME/PortMaster"
 else
   controlfolder="/roms/ports/PortMaster"
 fi
 
 source $controlfolder/control.txt
 source $controlfolder/device_info.txt
+export PORT_32BIT="Y"
+
 get_controls
 [ -f "${controlfolder}/mod_${CFW_NAME}.txt" ] && source "${controlfolder}/mod_${CFW_NAME}.txt"
 
@@ -20,6 +26,8 @@ GAMEDIR="/$directory/ports/magnibox"
 export LD_LIBRARY_PATH="/usr/lib32:$GAMEDIR/libs"
 export GMLOADER_DEPTH_DISABLE=1
 export GMLOADER_SAVEDIR="$GAMEDIR/gamedata/"
+export GMLOADER_PLATFORM="os_linux"
+
 
 # We log the execution of the script into log.txt
 exec > >(tee "$GAMEDIR/log.txt") 2>&1
@@ -45,10 +53,10 @@ cd "$GAMEDIR"
 if [ -f "./gamedata/data.win" ]; then
     checksum=$(md5sum "./gamedata/data.win" | awk '{print $1}')
     if [ "$checksum" = "ee45b1cde7b43538b73df84a29dfc6a0" ]; then # itch.io version
-        $ESUDO $controlfolder/xdelta3 -d -s gamedata/data.win -f ./patch/magnibox.itch.patch gamedata/game.droid && \
+        $ESUDO $controlfolder/xdelta3 -d -s gamedata/data.win -f ./patch/itch-to-control-fix.patch gamedata/game.droid && \
         rm gamedata/data.win
     elif [ "$checksum" = "30427fca0a9946d09a06e38aa2f4b41d" ]; then # steam version
-        $ESUDO $controlfolder/xdelta3 -d -s gamedata/data.win -f ./patch/magnibox.steam.patch gamedata/game.droid && \
+        $ESUDO $controlfolder/xdelta3 -d -s gamedata/data.win -f ./patch/steam-to-control-fix.patch gamedata/game.droid && \
         rm gamedata/data.win
     else
         echo "Error: MD5 checksum of data.win does not match one of the expected checksums."    
@@ -69,3 +77,4 @@ $ESUDO chmod +x "$GAMEDIR/gmloader"
 $ESUDO kill -9 $(pidof gptokeyb)
 $ESUDO systemctl restart oga_events &
 printf "\033c" > /dev/tty0
+
