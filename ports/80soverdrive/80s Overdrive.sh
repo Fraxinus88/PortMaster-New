@@ -19,7 +19,8 @@ get_controls
 GAMEDIR="/$directory/ports/80soverdrive"
 cd "$GAMEDIR" || exit 1
 
-> "$GAMEDIR/log.txt" && exec > >(tee "$GAMEDIR/log.txt") 2>&1
+# Truncate once, then append, so the patcher and game never overwrite each other
+> "$GAMEDIR/log.txt" && exec > >(tee -a "$GAMEDIR/log.txt") 2>&1
 
 if [ ! -f "$GAMEDIR/install_completed" ]; then
   if [ ! -f "$controlfolder/utils/patcher.txt" ]; then
@@ -83,6 +84,25 @@ export PATH="$monodir/bin:$PATH"
 export LD_LIBRARY_PATH="$libsdir:$monodir/lib:$LD_LIBRARY_PATH"
 export MONO_PATH="$GAMEDIR/gamedata"
 export SDL_GAMECONTROLLERCONFIG="$sdl_controllerconfig"
+
+# Audio: FMOD and OpenAL both open ALSA, and on some firmwares they fight over
+# an exclusive device. Pick a config by probing the system, not by CFW name.
+#   pipewire running -> alsa_pipewire.conf (sysdefault alias only)
+#   otherwise        -> alsa_shared.conf   (one shared dmix for default + sysdefault)
+# Override for testing: OVERDRIVE_ALSA=shared|pipewire|none
+export OVERDRIVE_FMOD_OUTPUT=alsa
+alsa_mode="${OVERDRIVE_ALSA:-auto}"
+if [ "$alsa_mode" = "auto" ]; then
+  if [ -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pipewire-0" ] || pgrep -x pipewire >/dev/null 2>&1; then
+    alsa_mode="pipewire"
+  else
+    alsa_mode="shared"
+  fi
+fi
+if [ "$alsa_mode" != "none" ] && [ -f /usr/share/alsa/alsa.conf ] && [ -f "$GAMEDIR/alsa_${alsa_mode}.conf" ]; then
+  export ALSA_CONFIG_PATH="$GAMEDIR/alsa_${alsa_mode}.conf"
+fi
+echo "Audio: mode=$alsa_mode ALSA_CONFIG_PATH=${ALSA_CONFIG_PATH:-unset} CFW=$CFW_NAME"
 
 cd "$GAMEDIR/gamedata" || exit 1
 
